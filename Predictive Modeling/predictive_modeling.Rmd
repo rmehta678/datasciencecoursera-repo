@@ -1,0 +1,120 @@
+---
+title: "Predictive Models"
+author: "Rohan Mehta"
+date: "9/2/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible 
+to collect a large amount of data about personal activity relatively 
+inexpensively. These type of devices are part of the quantified self 
+movement - a group of enthusiasts who take measurements about themselves 
+regularly to improve their health, to find patterns in their behavior, or 
+because they are tech geeks. One thing that people regularly do is quantify 
+how much of a particular activity they do, but they rarely quantify how well 
+they do it. The goal of this project is to use data from accelerometers 
+on the belt, forearm, arm, and dumbbell of 6 participants as they 
+perform barbell lifts correctly and incorrectly 5 different ways. 
+More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Reference
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human ’13). Stuttgart, Germany: ACM SIGCHI, 2013.
+
+# Data
+
+The training data for this project are available at:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available at:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+# Preprocessing
+### Load necessary libraries and data
+```{r warning=FALSE, message=FALSE, echo=TRUE}
+library(caret)
+library(rpart)
+library(RColorBrewer)
+library(e1071)
+library(randomForest)
+set.seed(1000)
+train <-
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+path <- paste(getwd(),"/", "fitness", sep="")
+train.file <- file.path(path, "fitness-train-data.csv")
+test.file <- file.path(path, "fitness-test-data.csv")
+```
+### If not loaded, download from source
+```{r}
+if (!file.exists(train.file)) {
+        download.file(train, destfile=train.file)
+}
+if (!file.exists(test.file)) {
+        download.file(test, destfile=test.file)
+}
+train.data.raw <- read.csv(train.file, na.strings=c("NA","#DIV/0!",""))
+test.data.raw <- read.csv(test.file, na.strings=c("NA","#DIV/0!",""))
+```
+### Remove unnecessary regions of data
+```{r}
+# We remove the first 7 columns.
+train_data_cleaned <- train.data.raw[,8:length(colnames(train.data.raw))]
+test_data_cleaned <- test.data.raw[,8:length(colnames(test.data.raw))]
+# Drop colums with NAs
+train_data_cleaned <- train_data_cleaned[, colSums(is.na(train_data_cleaned)) == 0] 
+test_data_cleaned <- test_data_cleaned[, colSums(is.na(test_data_cleaned)) == 0] 
+# Basic check to see if there are negligble predictors
+isNearZeroVariance <- nearZeroVar(train_data_cleaned,saveMetrics=TRUE)
+zeroVar <- sum(isNearZeroVariance$nzv)
+if ((zeroVar>0)) {
+        train_data_cleaned <- train_data_cleaned[,isNearZeroVariance$nzv==FALSE]
+}
+```
+### Perform cross-validation to select ideal train/test set
+```{r}
+in.training <- createDataPartition(train_data_cleaned$classe, p=0.70, list=F)
+trainingData <- train_data_cleaned[in.training, ]
+testData <- train_data_cleaned[-in.training, ]
+```
+# Model Training
+For model training, I will utilize Random Forest Regression in order to create predictions on this data. The reason for this is because of its highly accurate classification. It runs efficiently with datasets as large as the fitness data-set being analyzed, and chooses only the most important predictors when giving estimates. Proximities between pairs of cases can be used in clustering/locating outliers and giving interesting views of data. 
+```{r cache=TRUE}
+control <- trainControl(method="cv", 5)
+rf.model <- train(classe ~ ., data=trainingData, method="rf",
+                 trControl=control, ntree=200)
+rf.model
+```
+### Evaluate Performance
+I will use the testData garnered when performing the cross-validation preprocessing step above to measure accuracy. Predicted values will be acquired by utilizing the trained data-set which will be compared to the actual values of the testData. Accuracy and overall out-of-sample error are the indicators which I will pay most attention to. 
+```{r}
+rf.predict <- predict(rf.model, testData)
+confusionMatrix(testData$classe, rf.predict)
+accuracy <- postResample(rf.predict, testData$classe)
+accuracy <- accuracy[1]
+outOfSampleError <- 
+        1 - as.numeric(confusionMatrix(testData$classe, rf.predict)
+                       $overall[1])
+```
+The accuracy of the model is **`r accuracy`** and the out-of-sample error is **`r outOfSampleError`**.
+
+# Now we can produce the predicted values for further insights
+```{r}
+results <- predict(rf.model, 
+                   test_data_cleaned[, -length(names(test_data_cleaned))])
+results
+```
+
+# Appendix - Visualization of Model
+```{r warning=FALSE}
+plot(rf.model, main = 'Accuracy of Random Forest Versus Number of Random Predictors')
+```
